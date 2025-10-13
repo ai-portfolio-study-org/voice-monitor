@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { AlertTriangle, Activity, TrendingUp, Shield } from "lucide-react";
+import { API_CONFIG } from "@/config";
 
 const GrafanaWebView = () => {
   const [isGrafanaError, setIsGrafanaError] = useState(false);
 
-  // 실제 대시보드 URL로 수정
-  const grafanaUrl = "http://localhost:3000";
+  // Railway 백엔드의 Grafana 대시보드 URL
+  const grafanaUrl = API_CONFIG.GRAFANA_URL;
 
   if (!grafanaUrl || isGrafanaError) {
     // Grafana 연결 실패 시 모킹 대시보드 표시
