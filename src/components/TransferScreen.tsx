@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Mic, Send, User, DollarSign } from "lucide-react";
 import TransferMessage from "./TransferMessage";
+import { API_CONFIG } from "@/config";
 
 // Web Speech API 타입 정의
 interface SpeechRecognitionEvent extends Event {
@@ -55,6 +56,16 @@ interface Message {
     amount: number;
     status: "processing" | "completed" | "failed";
   };
+  isStreaming?: boolean;
+}
+
+interface DutchPayState {
+  isActive: boolean;
+  totalAmount?: number;
+  numberOfPeople?: number;
+  amountPerPerson?: number;
+  friends?: string[];
+  step: "initial" | "asking_people" | "asking_friends" | "confirming" | "completed";
 }
 
 interface TransferScreenProps {
@@ -68,11 +79,16 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
       type: "system",
       content: `안녕하세요 ${user.name}님! 음성 또는 텍스트로 송금을 요청해주세요.`,
       timestamp: new Date(),
+      isStreaming: true,
     },
   ]);
   const [inputText, setInputText] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [dutchPayState, setDutchPayState] = useState<DutchPayState>({
+    isActive: false,
+    step: "initial"
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -80,6 +96,11 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
   };
 
   const parseTransferRequest = (text: string) => {
+    // 더치페이 키워드 확인
+    if (text.includes("더치페이") || text.includes("나눠서") || text.includes("같이 내")) {
+      return { type: "dutch_pay", text };
+    }
+
     // 간단한 패턴 매칭으로 송금 요청 파싱
     const patterns = [
       // "김민수에게 5만원 보내줘" 패턴
@@ -117,11 +138,154 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
             }
           }
 
-          return { receiver, amount };
+          return { type: "regular_transfer", receiver, amount };
         }
       }
     }
     return null;
+  };
+
+  const handleDutchPayFlowWithMessages = (userInput: string, currentMessages: Message[]) => {
+    const newMessages = [...currentMessages];
+
+    switch (dutchPayState.step) {
+      case "initial":
+        // 더치페이 시작
+        setDutchPayState({
+          ...dutchPayState,
+          isActive: true,
+          step: "asking_people"
+        });
+
+        const systemResponse1: Message = {
+          id: (Date.now() + 1).toString(),
+          type: "system",
+          content: "몇 분이서 총 얼마 나왔나요?",
+          timestamp: new Date(),
+          isStreaming: true,
+        };
+        return [...newMessages, systemResponse1];
+
+      case "asking_people":
+        // 인원 수와 총 금액을 한번에 파악
+        const peopleMatch = userInput.match(/(\d+|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*명/);
+        const amountMatch = userInput.match(/(\d+)\s*만?\s*원?/);
+
+        if (peopleMatch && amountMatch) {
+          // 한글 숫자를 아라비아 숫자로 변환
+          const koreanToNumber: { [key: string]: number } = {
+            '한': 1, '두': 2, '세': 3, '네': 4, '다섯': 5,
+            '여섯': 6, '일곱': 7, '여덟': 8, '아홉': 9, '열': 10
+          };
+
+          let numberOfPeople: number;
+          if (isNaN(parseInt(peopleMatch[1]))) {
+            numberOfPeople = koreanToNumber[peopleMatch[1]] || 0;
+          } else {
+            numberOfPeople = parseInt(peopleMatch[1]);
+          }
+
+          let totalAmount = parseInt(amountMatch[1]);
+          if (userInput.includes("만")) {
+            totalAmount *= 10000;
+          }
+
+          const amountPerPerson = Math.floor(totalAmount / numberOfPeople);
+
+          setDutchPayState({
+            ...dutchPayState,
+            numberOfPeople,
+            totalAmount,
+            amountPerPerson,
+            step: "asking_friends"
+          });
+
+          const systemResponse2: Message = {
+            id: (Date.now() + 1).toString(),
+            type: "system",
+            content: `1인당 ${amountPerPerson.toLocaleString()}원씩이네요. 연락처에서 함께 식사하신 분들을 찾아볼까요?`,
+            timestamp: new Date(),
+            isStreaming: true,
+          };
+          return [...newMessages, systemResponse2];
+        }
+        break;
+
+
+      case "asking_friends":
+        // 친구들 이름 파악
+        const friendsText = userInput.replace(/응|네|좋아/, "").trim();
+        const friends = friendsText.split(/,|\s+/).filter(name =>
+          name.length > 1 && /[가-힣]/.test(name)
+        );
+
+        if (friends.length > 0) {
+          setDutchPayState({
+            ...dutchPayState,
+            friends,
+            step: "confirming"
+          });
+
+          const systemResponse4: Message = {
+            id: (Date.now() + 1).toString(),
+            type: "system",
+            content: `${friends.join(", ")} 님께 각각 ${dutchPayState.amountPerPerson?.toLocaleString()}원씩 송금하시겠습니까?`,
+            timestamp: new Date(),
+            isStreaming: true,
+          };
+          return [...newMessages, systemResponse4];
+        }
+        break;
+
+      case "confirming":
+        if (userInput.includes("네") || userInput.includes("응") || userInput.includes("좋아")) {
+          setDutchPayState({
+            ...dutchPayState,
+            step: "completed"
+          });
+
+          // 송금 처리 메시지들 생성
+          const transferMessages: Message[] = dutchPayState.friends?.map((friend, index) => ({
+            id: (Date.now() + index + 2).toString(),
+            type: "transfer",
+            content: `${friend}님에게 ${dutchPayState.amountPerPerson?.toLocaleString()}원을 송금합니다.`,
+            timestamp: new Date(),
+            transferData: {
+              receiver: friend,
+              amount: dutchPayState.amountPerPerson || 0,
+              status: "processing"
+            }
+          })) || [];
+
+          // 송금 완료 처리
+          setTimeout(() => {
+            transferMessages.forEach((msg, index) => {
+              setTimeout(() => {
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === msg.id
+                      ? { ...m, transferData: { ...m.transferData!, status: "completed" } }
+                      : m
+                  )
+                );
+              }, (index + 1) * 1000);
+            });
+
+            // 모든 송금 완료 후 상태 초기화
+            setTimeout(() => {
+              setDutchPayState({
+                isActive: false,
+                step: "initial"
+              });
+            }, transferMessages.length * 1000 + 500);
+          }, 1000);
+
+          return [...newMessages, ...transferMessages];
+        }
+        break;
+    }
+
+    return newMessages;
   };
 
   const sendTransactionData = async (transferData: {
@@ -129,23 +293,7 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
     amount: number;
   }) => {
     try {
-      const response = await fetch(
-        "https://fastapi-production-93ec.up.railway.app/predict/",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            transaction_id: Date.now(),
-            amount: transferData.amount,
-            card_type: "visa",
-            timestamp: Math.floor(Date.now() / 1000),
-            receiver: transferData.receiver,
-            sender: user.name,
-          }),
-        }
-      );
+
 
       if (!response.ok) {
         throw new Error("Transaction failed");
@@ -168,62 +316,99 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-
-    const transferData = parseTransferRequest(inputText);
     setInputText("");
     setIsProcessing(true);
 
+    // 더치페이 진행 중인지 확인
+    if (dutchPayState.isActive) {
+      setMessages((prev) => [...prev, userMessage]);
+      setTimeout(() => {
+        setMessages((currentMessages) => {
+          const updatedMessages = handleDutchPayFlowWithMessages(inputText, currentMessages);
+          return updatedMessages;
+        });
+        setIsProcessing(false);
+        setTimeout(scrollToBottom, 100);
+      }, 100);
+      return;
+    }
+
+    setMessages((prev) => [...prev, userMessage]);
+
+    const transferData = parseTransferRequest(inputText);
+
     if (transferData) {
-      try {
-        const transferMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: "transfer",
-          content: `${
-            transferData.receiver
-          }님에게 ${transferData.amount.toLocaleString()}원을 송금합니다.`,
-          timestamp: new Date(),
-          transferData: {
-            ...transferData,
-            status: "processing",
-          },
-        };
-
-        setMessages((prev) => [...prev, transferMessage]);
-
-        // 백엔드로 거래 데이터 전송
-        await sendTransactionData(transferData);
-
-        // 송금 완료 처리
+      // 더치페이 시작
+      if (transferData.type === "dutch_pay") {
         setTimeout(() => {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === transferMessage.id
-                ? {
-                    ...msg,
-                    transferData: { ...msg.transferData!, status: "completed" },
-                  }
-                : msg
-            )
-          );
-        }, 3000);
-      } catch (error) {
-        // 에러 처리
-        const errorMessage: Message = {
-          id: (Date.now() + 2).toString(),
-          type: "system",
-          content: "송금 처리 중 오류가 발생했습니다. 다시 시도해주세요.",
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, errorMessage]);
+          setMessages((currentMessages) => {
+            const updatedMessages = handleDutchPayFlowWithMessages(inputText, currentMessages);
+            return updatedMessages;
+          });
+          setIsProcessing(false);
+          setTimeout(scrollToBottom, 100);
+        }, 100);
+        return;
+      }
+
+      // 일반 송금 처리
+      if (transferData.type === "regular_transfer") {
+        try {
+          const transferMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            type: "transfer",
+            content: `${
+              transferData.receiver
+            }님에게 ${transferData.amount.toLocaleString()}원을 송금합니다.`,
+            timestamp: new Date(),
+            transferData: {
+              receiver: transferData.receiver,
+              amount: transferData.amount,
+              status: "processing",
+            },
+          };
+
+          setMessages((prev) => [...prev, transferMessage]);
+
+          // 백엔드로 거래 데이터 전송
+          await sendTransactionData({
+            receiver: transferData.receiver,
+            amount: transferData.amount
+          });
+
+          // 송금 완료 처리
+          setTimeout(() => {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === transferMessage.id
+                  ? {
+                      ...msg,
+                      transferData: { ...msg.transferData!, status: "completed" },
+                    }
+                  : msg
+              )
+            );
+          }, 3000);
+        } catch (error) {
+          // 에러 처리
+          const errorMessage: Message = {
+            id: (Date.now() + 2).toString(),
+            type: "system",
+            content: "송금 처리 중 오류가 발생했습니다. 다시 시도해주세요.",
+            timestamp: new Date(),
+            isStreaming: true,
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        }
       }
     } else {
       const systemMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: "system",
         content:
-          '송금 요청을 이해하지 못했습니다. "김민수에게 5만원 보내줘"와 같이 말씀해주세요.',
+          '송금 요청을 이해하지 못했습니다. "김민수에게 5만원 보내줘" 또는 "친구들이랑 밥먹고 더치페이해야 하는데"와 같이 말씀해주세요.',
         timestamp: new Date(),
+        isStreaming: true,
       };
       setMessages((prev) => [...prev, systemMessage]);
     }
