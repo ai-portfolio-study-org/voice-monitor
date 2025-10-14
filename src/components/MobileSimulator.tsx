@@ -1,23 +1,24 @@
+import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import LoginScreen from "./LoginScreen";
+import TransferScreen from "./TransferScreen";
 
-import { useState } from 'react';
-import { Card } from '@/components/ui/card';
-import LoginScreen from './LoginScreen';
-import TransferScreen from './TransferScreen';
-
-export type Screen = 'login' | 'signup' | 'main';
+export type Screen = "login" | "signup" | "main";
 
 const MobileSimulator = () => {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('login');
-  const [user, setUser] = useState<{ email: string; name: string } | null>(null);
+  const [currentScreen, setCurrentScreen] = useState<Screen>("login");
+  const [user, setUser] = useState<{ email: string; name: string } | null>(
+    null
+  );
 
   const handleLogin = (email: string, name: string) => {
     setUser({ email, name });
-    setCurrentScreen('main');
+    setCurrentScreen("main");
   };
 
   const handleLogout = () => {
     setUser(null);
-    setCurrentScreen('login');
+    setCurrentScreen("login");
   };
 
   return (
@@ -40,9 +41,9 @@ const MobileSimulator = () => {
           </div>
           <span className="text-white font-bold text-lg">VoicePay</span>
         </div>
-        
+
         {user && (
-          <button 
+          <button
             onClick={handleLogout}
             className="text-white/80 hover:text-white text-sm"
           >
@@ -53,24 +54,22 @@ const MobileSimulator = () => {
 
       {/* 메인 콘텐츠 */}
       <div className="flex-1 overflow-hidden">
-        {currentScreen === 'login' && (
-          <LoginScreen 
+        {currentScreen === "login" && (
+          <LoginScreen
             onLogin={handleLogin}
-            onSwitchToSignup={() => setCurrentScreen('signup')}
+            onSwitchToSignup={() => setCurrentScreen("signup")}
           />
         )}
-        
-        {currentScreen === 'signup' && (
-          <LoginScreen 
+
+        {currentScreen === "signup" && (
+          <LoginScreen
             isSignup
             onLogin={handleLogin}
-            onSwitchToSignup={() => setCurrentScreen('login')}
+            onSwitchToSignup={() => setCurrentScreen("login")}
           />
         )}
-        
-        {currentScreen === 'main' && user && (
-          <TransferScreen user={user} />
-        )}
+
+        {currentScreen === "main" && user && <TransferScreen user={user} />}
       </div>
     </Card>
   );

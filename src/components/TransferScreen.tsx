@@ -293,21 +293,7 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
     amount: number;
   }) => {
     try {
-      const apiUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PREDICT}`;
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          transaction_id: Date.now(),
-          amount: transferData.amount,
-          card_type: "visa",
-          timestamp: Math.floor(Date.now() / 1000),
-          receiver: transferData.receiver,
-          sender: user.name,
-        }),
-      });
+
 
       if (!response.ok) {
         throw new Error("Transaction failed");
