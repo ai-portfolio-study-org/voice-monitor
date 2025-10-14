@@ -1,6 +1,7 @@
 
 import { Card } from '@/components/ui/card';
 import { CheckCircle, Clock, XCircle, DollarSign } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 interface Message {
   id: string;
@@ -12,6 +13,7 @@ interface Message {
     amount: number;
     status: 'processing' | 'completed' | 'failed';
   };
+  isStreaming?: boolean;
 }
 
 interface TransferMessageProps {
@@ -19,11 +21,37 @@ interface TransferMessageProps {
 }
 
 const TransferMessage = ({ message }: TransferMessageProps) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTypingComplete, setIsTypingComplete] = useState(!message.isStreaming);
+
+  useEffect(() => {
+    if (message.type === 'system' && message.isStreaming) {
+      setDisplayedText('');
+      setIsTypingComplete(false);
+
+      let index = 0;
+      const interval = setInterval(() => {
+        if (index < message.content.length) {
+          setDisplayedText(message.content.slice(0, index + 1));
+          index++;
+        } else {
+          setIsTypingComplete(true);
+          clearInterval(interval);
+        }
+      }, 50); // 50ms마다 한 글자씩
+
+      return () => clearInterval(interval);
+    } else {
+      setDisplayedText(message.content);
+      setIsTypingComplete(true);
+    }
+  }, [message.content, message.isStreaming, message.type]);
+
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('ko-KR', { 
-      hour: '2-digit', 
+    return date.toLocaleTimeString('ko-KR', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: false 
+      hour12: false
     });
   };
 
@@ -98,10 +126,17 @@ const TransferMessage = ({ message }: TransferMessageProps) => {
   return (
     <div className="flex justify-start">
       <div className="bg-slate-100 rounded-2xl p-3 max-w-[80%]">
-        <div className="text-sm text-slate-700">{message.content}</div>
-        <div className="text-xs text-slate-500 mt-1">
-          {formatTime(message.timestamp)}
+        <div className="text-sm text-slate-700">
+          {displayedText}
+          {message.type === 'system' && !isTypingComplete && (
+            <span className="animate-pulse">|</span>
+          )}
         </div>
+        {isTypingComplete && (
+          <div className="text-xs text-slate-500 mt-1">
+            {formatTime(message.timestamp)}
+          </div>
+        )}
       </div>
     </div>
   );
