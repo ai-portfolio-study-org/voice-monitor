@@ -257,17 +257,37 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
             }
           })) || [];
 
-          // 송금 완료 처리
+          // 송금 완료 처리 및 백엔드 API 호출
           setTimeout(() => {
             transferMessages.forEach((msg, index) => {
-              setTimeout(() => {
-                setMessages(prev =>
-                  prev.map(m =>
-                    m.id === msg.id
-                      ? { ...m, transferData: { ...m.transferData!, status: "completed" } }
-                      : m
-                  )
-                );
+              setTimeout(async () => {
+                try {
+                  // 백엔드로 거래 데이터 전송
+                  if (msg.transferData) {
+                    await sendTransactionData({
+                      receiver: msg.transferData.receiver,
+                      amount: msg.transferData.amount
+                    });
+                  }
+
+                  // 송금 완료 상태로 업데이트
+                  setMessages(prev =>
+                    prev.map(m =>
+                      m.id === msg.id
+                        ? { ...m, transferData: { ...m.transferData!, status: "completed" } }
+                        : m
+                    )
+                  );
+                } catch (error) {
+                  // 에러 시 실패 상태로 업데이트
+                  setMessages(prev =>
+                    prev.map(m =>
+                      m.id === msg.id
+                        ? { ...m, transferData: { ...m.transferData!, status: "failed" } }
+                        : m
+                    )
+                  );
+                }
               }, (index + 1) * 1000);
             });
 
@@ -293,7 +313,16 @@ const TransferScreen = ({ user }: TransferScreenProps) => {
     amount: number;
   }) => {
     try {
-
+      const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PREDICT}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: transferData.amount,
+          user_id: user.email, // 사용자 이메일을 user_id로 사용
+        }),
+      });
 
       if (!response.ok) {
         throw new Error("Transaction failed");
